@@ -208,6 +208,9 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self.idleTimeoutWaitTemp = self._settings.get_int(["idleTimeoutWaitTemp"])
         self._logger.debug("idleTimeoutWaitTemp: %s" % self.idleTimeoutWaitTemp)
 
+        self.idleTimeoutWaitTempBed = self._settings.get_int(["idleTimeoutWaitTempBed"])
+        self._logger.debug("idleTimeoutWaitTempBed: %s" % self.idleTimeoutWaitTempBed)
+
         if self.switchingMethod == 'GCODE':
             self._logger.info("Using G-Code Commands for On/Off")
         elif self.switchingMethod == 'GPIO':
@@ -444,16 +447,15 @@ class PSUControl(octoprint.plugin.StartupPlugin,
 
         while True:
             if not self._waitForHeaters:
+                self._logger.debug("Off here!")
                 return False
             
             heaters = self._printer.get_current_temperatures()
             
             highest_temp = 0
             heaters_above_waittemp = []
-            for heater, entry in heaters.items():
-                if not heater.startswith("tool"):
-                    continue
 
+            for heater, entry in heaters.items():
                 actual = entry.get("actual")
                 if actual is None:
                     # heater doesn't exist in fw
@@ -466,13 +468,20 @@ class PSUControl(octoprint.plugin.StartupPlugin,
                     continue
 
                 self._logger.debug("Heater %s = %sC" % (heater,temp))
-                if temp > self.idleTimeoutWaitTemp:
-                    heaters_above_waittemp.append(heater)
+                if not heater.startswith("tool"):
+                    # Bed
+                    if temp > self.idleTimeoutWaitTempBed:
+                        heaters_above_waittemp.append(heater)
+                else:
+                    # Tool
+                    if temp > self.idleTimeoutWaitTemp:
+                        heaters_above_waittemp.append(heater)
                 
                 if temp > highest_temp:
                     highest_temp = temp
                 
-            if highest_temp <= self.idleTimeoutWaitTemp:
+            if highest_temp <= self.idleTimeoutWaitTemp and highest_temp <= self.idleTimeoutWaitTempBed:
+                self._logger.debug("Stopped the timeout here")
                 self._waitForHeaters = False
                 return True
             
@@ -636,7 +645,8 @@ class PSUControl(octoprint.plugin.StartupPlugin,
             powerOffWhenIdle = False,
             idleTimeout = 30,
             idleIgnoreCommands = 'M105',
-            idleTimeoutWaitTemp = 50
+            idleTimeoutWaitTemp = 50,
+            idleTimeoutWaitTempBed = 40
         )
 
     def on_settings_save(self, data):
@@ -678,6 +688,7 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self.enablePowerOffWarningDialog = self._settings.get_boolean(["enablePowerOffWarningDialog"])
         self._idleIgnoreCommandsArray = self.idleIgnoreCommands.split(',')
         self.idleTimeoutWaitTemp = self._settings.get_int(["idleTimeoutWaitTemp"])
+        self.idleTimeoutWaitTempBed = self._settings.get_int(["idleTimeoutWaitTempBed"])
 
         #GCode switching and PseudoOnOff are not compatible.
         if self.switchingMethod == 'GCODE' and self.enablePseudoOnOff:
